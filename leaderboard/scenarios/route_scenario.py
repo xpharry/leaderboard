@@ -272,14 +272,15 @@ class RouteScenario(BasicScenario):
         #                                                            timeout=self.timeout,
         #                                                            debug_mode=False)
 
-        # self.traffic_light_scenario = self._build_trafficlight_scenario(world,
-        #                                                                 ego_vehicle,
-        #                                                                 config.town,
-        #                                                                 timeout=self.timeout,
-        #                                                                 debug_mode=False)
+        self.traffic_light_scenario = self._build_trafficlight_scenario(world,
+                                                                        ego_vehicle,
+                                                                        config.town,
+                                                                        timeout=self.timeout,
+                                                                        debug_mode=False)
 
         # self.list_scenarios = [self.master_scenario, self.background_scenario, self.traffic_light_scenario]
-        self.list_scenarios = [self.master_scenario]
+        self.list_scenarios = [self.master_scenario, self.traffic_light_scenario]
+        # self.list_scenarios = [self.master_scenario]
 
         # build the instance based on the parsed definitions.
         self.list_scenarios += self._build_scenario_instances(world,
