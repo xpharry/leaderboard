@@ -21,8 +21,12 @@ import carla
 
 from srunner.scenariomanager.carla_data_provider import CarlaDataProvider
 from srunner.scenariomanager.timer import GameTime, TimeOut
+from srunner.scenariomanager.traffic_events import TrafficEventType
+
 
 from leaderboard.autoagents.agent_wrapper import AgentWrapper
+from leaderboard.utils.statistics_manager import *
+
 
 class Scenario(object):
 
@@ -149,6 +153,8 @@ class ScenarioManager(object):
         self.start_system_time = None
         self.end_system_time = None
 
+        self.route_record = RouteRecord()
+
         # Register the scenario tick as callback for the CARLA world
         # Use the callback_id inside the signal handler to allow external interrupts
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -169,6 +175,7 @@ class ScenarioManager(object):
         self.scenario_duration_game = 0.0
         self.start_system_time = None
         self.end_system_time = None
+        self.route_record = RouteRecord()
         GameTime.restart()
 
     def load_scenario(self, scenario, agent=None):
@@ -213,6 +220,75 @@ class ScenarioManager(object):
 
         if self.scenario_tree.status == py_trees.common.Status.FAILURE:
             print("ScenarioManager: Terminated due to failure")
+
+    def show_current_score(self):
+        master_scenario = self.scenario
+
+        target_reached = False
+        score_penalty = 1.0
+        score_route = 0.0
+
+        for node in master_scenario.get_criteria():
+            if node.list_traffic_events:
+                # analyze all traffic events
+                for event in node.list_traffic_events:
+                    if event.get_type() == TrafficEventType.COLLISION_STATIC:
+                        score_penalty *= PENALTY_COLLISION_STATIC
+                        self.route_record.infractions['collisions_layout'].append(event.get_message())
+
+                    elif event.get_type() == TrafficEventType.COLLISION_VEHICLE:
+                        score_penalty *= PENALTY_COLLISION_VEHICLE
+                        self.route_record.infractions['collisions_vehicle'].append(event.get_message())
+
+                    elif event.get_type() == TrafficEventType.COLLISION_PEDESTRIAN:
+                        score_penalty *= PENALTY_COLLISION_PEDESTRIAN
+                        self.route_record.infractions['collisions_pedestrian'].append(event.get_message())
+
+                    elif event.get_type() == TrafficEventType.TRAFFIC_LIGHT_INFRACTION:
+                        score_penalty *= PENALTY_TRAFFIC_LIGHT
+                        self.route_record.infractions['red_light'].append(event.get_message())
+
+                    elif event.get_type() == TrafficEventType.WRONG_WAY_INFRACTION:
+                        score_penalty *= PENALTY_WRONG_WAY
+                        score_penalty *= math.pow(PENALTY_WRONG_WAY_PER_METER, event.get_dict()['distance'])
+                        self.route_record.infractions['wrong_way'].append(event.get_message())
+
+                    elif event.get_type() == TrafficEventType.ROUTE_DEVIATION:
+                        self.route_record.infractions['route_dev'].append(event.get_message())
+
+                    elif event.get_type() == TrafficEventType.ON_SIDEWALK_INFRACTION:
+                        score_penalty *= PENALTY_SIDEWALK_INVASION
+                        score_penalty *= math.pow(PENALTY_SIDEWALK_INVASION_PER_METER, event.get_dict()['distance'])
+                        self.route_record.infractions['sidewalk_invasion'].append(event.get_message())
+
+                    elif event.get_type() == TrafficEventType.OUTSIDE_LANE_INFRACTION:
+                        score_penalty *= PENALTY_OUTSIDE_LANE_INVASION
+                        score_penalty *= math.pow(PENALTY_OUTSIDE_LANE_PER_METER, event.get_dict()['distance'])
+                        self.route_record.infractions['outside_driving_lanes'].append(event.get_message())
+
+                    elif event.get_type() == TrafficEventType.STOP_INFRACTION:
+                        score_penalty *= PENALTY_STOP
+                        self.route_record.infractions['stop_infraction'].append(event.get_message())
+
+                    elif event.get_type() == TrafficEventType.ROUTE_COMPLETED:
+                        score_route = 100.0
+                        target_reached = True
+                    elif event.get_type() == TrafficEventType.ROUTE_COMPLETION:
+                        if not target_reached:
+                            if event.get_dict():
+                                score_route = event.get_dict()['route_completed']
+                            else:
+                                score_route = 0
+
+        # update route scores
+        self.route_record.scores['score_route'] = score_route
+        self.route_record.scores['score_penalty'] = score_penalty
+        self.route_record.scores['score_composed'] = max(score_route*score_penalty, 0.0)
+
+        print("[Agent score] [route={:.2f}] [penalty={:.2f}] [total={:.2f}]".format(self.route_record.scores['score_route'],
+                                                                        self.route_record.scores['score_penalty'],
+                                                                        self.route_record.scores['score_composed']
+                                                                        ))
 
     def _tick_scenario(self, timestamp):
         """
@@ -261,6 +337,9 @@ class ScenarioManager(object):
 
                 if self._agent is not None:
                     self.ego_vehicles[0].apply_control(ego_action)
+
+                if True:
+                    self.show_current_score()
 
         if self._agent:
             CarlaDataProvider.get_world().tick()
