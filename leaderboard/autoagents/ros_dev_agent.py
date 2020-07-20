@@ -38,9 +38,9 @@ from carla_msgs.msg import CarlaRadarMeasurement, CarlaRadarDetection
 from leaderboard.autoagents.autonomous_agent import AutonomousAgent, Track
 
 def get_entry_point():
-    return 'RosAgent'
+    return 'ROSDevAgent'
 
-class RosAgent(AutonomousAgent):
+class ROSDevAgent(AutonomousAgent):
 
     """
     Base class for ROS-based stacks.
@@ -56,6 +56,7 @@ class RosAgent(AutonomousAgent):
     This agent expects a roscore to be running.
     """
 
+    role_name = None
     speed = None
     current_control = None
     stack_process = None
@@ -72,6 +73,8 @@ class RosAgent(AutonomousAgent):
         self.track = Track.MAP
         self.stack_thread = None
 
+        self.role_name = 'hero'
+
         # get start_script from environment
         team_code_path = os.environ['TEAM_CODE_ROOT']
         if not team_code_path or not os.path.exists(team_code_path):
@@ -79,6 +82,11 @@ class RosAgent(AutonomousAgent):
         start_script = "{}/start.sh".format(team_code_path)
         if not os.path.exists(start_script):
             raise IOError("File '{}' defined by TEAM_CODE_ROOT invalid".format(start_script))
+
+        # start roscore via commandline before init-node
+        process = subprocess.Popen(
+            "roscore", shell=True, stderr=subprocess.STDOUT, stdout=subprocess.PIPE)
+        time.sleep(1)  # wait a bit to be sure the roscore is really launched
 
         # set use_sim_time via commandline before init-node
         process = subprocess.Popen(
@@ -88,7 +96,7 @@ class RosAgent(AutonomousAgent):
             raise RuntimeError("Could not set use_sim_time")
 
         # initialize ros node
-        rospy.init_node('ros_agent', anonymous=True)
+        rospy.init_node('ros_dev_agent', anonymous=True)
 
         # publish first clock value '0'
         self.clock_publisher = rospy.Publisher('clock', Clock, queue_size=10, latch=True)
@@ -113,12 +121,12 @@ class RosAgent(AutonomousAgent):
         self.step_mode_possible = False
 
         self.vehicle_control_subscriber = rospy.Subscriber(
-            '/carla/ego_vehicle/vehicle_control_cmd', CarlaEgoVehicleControl, self.on_vehicle_control)
+            '/carla/{}/vehicle_control_cmd'.format(self.role_name), CarlaEgoVehicleControl, self.on_vehicle_control)
 
         self.current_control = carla.VehicleControl()
 
         self.waypoint_publisher = rospy.Publisher(
-            '/carla/ego_vehicle/waypoints', Path, queue_size=1, latch=True)
+            '/carla/{}/waypoints'.format(self.role_name), Path, queue_size=1, latch=True)
 
         self.publisher_map = {}
         self.id_to_sensor_type_map = {}
@@ -138,25 +146,25 @@ class RosAgent(AutonomousAgent):
             self.id_to_sensor_type_map[sensor['id']] = sensor['type']
             if sensor['type'] == 'sensor.camera.rgb':
                 self.publisher_map[sensor['id']] = rospy.Publisher(
-                    '/carla/ego_vehicle/camera/rgb/' + sensor['id'] + "/image_color", Image, queue_size=1, latch=True)
+                    '/carla/{}/camera/rgb/'.format(self.role_name) + sensor['id'] + "/image_color", Image, queue_size=1, latch=True)
                 self.id_to_camera_info_map[sensor['id']] = self.build_camera_info(sensor)
                 self.publisher_map[sensor['id'] + '_info'] = rospy.Publisher(
-                    '/carla/ego_vehicle/camera/rgb/' + sensor['id'] + "/camera_info", CameraInfo, queue_size=1, latch=True)
+                    '/carla/{}/camera/rgb/'.format(self.role_name) + sensor['id'] + "/camera_info", CameraInfo, queue_size=1, latch=True)
             elif sensor['type'] == 'sensor.lidar.ray_cast':
                 self.publisher_map[sensor['id']] = rospy.Publisher(
-                    '/carla/ego_vehicle/lidar/' + sensor['id'] + "/point_cloud", PointCloud2, queue_size=1, latch=True)
+                    '/carla/{}/lidar/'.format(self.role_name) + sensor['id'] + "/point_cloud", PointCloud2, queue_size=1, latch=True)
             elif sensor['type'] == 'sensor.other.radar':
                 self.publisher_map[sensor['id']] = rospy.Publisher(
-                    '/carla/ego_vehicle/rader/' + sensor['id'] + "/radar", CarlaRadarMeasurement, queue_size=1, latch=True)
+                    '/carla/{}/radar/'.format(self.role_name) + sensor['id'] + "/radar", CarlaRadarMeasurement, queue_size=1, latch=True)
             elif sensor['type'] == 'sensor.other.gnss':
                 self.publisher_map[sensor['id']] = rospy.Publisher(
-                    '/carla/ego_vehicle/gnss/' + sensor['id'] + "/fix", NavSatFix, queue_size=1, latch=True)
+                    '/carla/{}/gnss/'.format(self.role_name) + sensor['id'] + "/fix", NavSatFix, queue_size=1, latch=True)
             elif sensor['type'] == 'sensor.other.imu':
                 self.publisher_map[sensor['id']] = rospy.Publisher(
-                    '/carla/ego_vehicle/imu/' + sensor['id'], Imu, queue_size=1, latch=True)
+                    '/carla/{}/imu/'.format(self.role_name) + sensor['id'], Imu, queue_size=1, latch=True)
             elif sensor['type'] == 'sensor.opendrive_map':
                 self.publisher_map[sensor['id']] = rospy.Publisher(
-                    '/carla/ego_vehicle/opendrive', CarlaWorldInfo, queue_size=1, latch=True)
+                    '/carla/{}/opendrive'.format(self.role_name), CarlaWorldInfo, queue_size=1, latch=True)
             else:
                 raise TypeError("Invalid sensor type: {}".format(sensor['type']))
         # pylint: enable=line-too-long
@@ -270,6 +278,8 @@ class RosAgent(AutonomousAgent):
                     'yaw': -45.0, 'width': 800, 'height': 600, 'fov': 100, 'id': 'left'},
                    {'type': 'sensor.camera.rgb', 'x': 0.7, 'y': 0.4, 'z': 1.60, 'roll': 0.0, 'pitch': 0.0, 'yaw': 45.0,
                     'width': 800, 'height': 600, 'fov': 100, 'id': 'right'},
+                   {'type': 'sensor.camera.rgb', 'x': -1.0, 'y': 0.0, 'z': 2.60, 'roll': 0.0, 'pitch': 0.0, 'yaw': 0.0,
+                    'width': 800, 'height': 600, 'fov': 100, 'id': 'view'},
                    {'type': 'sensor.lidar.ray_cast', 'x': 0.7, 'y': -0.4, 'z': 1.60, 'roll': 0.0, 'pitch': 0.0,
                     'yaw': -45.0, 'id': 'lidar1'},
                    {'type': 'sensor.other.radar', 'x': 0.7, 'y': -0.4, 'z': 1.60, 'roll': 0.0, 'pitch': 0.0,
@@ -296,7 +306,7 @@ class RosAgent(AutonomousAgent):
         Function to publish lidar data
         """
         header = self.get_header()
-        header.frame_id = 'ego_vehicle/lidar/{}'.format(sensor_id)
+        header.frame_id = '{}/lidar/{}'.format(self.role_name, sensor_id)
 
         # lidar_data = numpy.frombuffer(
         #     data, dtype=numpy.float32)
@@ -335,7 +345,7 @@ class RosAgent(AutonomousAgent):
         msg = self.cv_bridge.cv2_to_imgmsg(data, encoding='bgra8')
         # the camera data is in respect to the camera's own frame
         msg.header = self.get_header()
-        msg.header.frame_id = 'ego_vehicle/camera/rgb/{}'.format(sensor_id)
+        msg.header.frame_id = '{}/camera/rgb/{}'.format(self.role_name, sensor_id)
 
         cam_info = self.id_to_camera_info_map[sensor_id]
         cam_info.header = msg.header

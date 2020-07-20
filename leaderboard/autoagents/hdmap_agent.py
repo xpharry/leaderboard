@@ -14,19 +14,19 @@ import carla
 from leaderboard.autoagents.autonomous_agent import AutonomousAgent, Track
 
 def get_entry_point():
-    return 'DummyAgent'
+    return 'HDMapAgent'
 
-class DummyAgent(AutonomousAgent):
+class HDMapAgent(AutonomousAgent):
 
     """
-    Dummy autonomous agent to control the ego vehicle
+    A testing autonomous agent which have all sensors to control the ego vehicle
     """
 
     def setup(self, path_to_conf_file):
         """
         Setup the agent parameters
         """
-        self.track = Track.SENSORS
+        self.track = Track.MAP
 
     def sensors(self):
         """
@@ -60,6 +60,7 @@ class DummyAgent(AutonomousAgent):
                    {'type': 'sensor.other.imu', 'x': 0.7, 'y': -0.4, 'z': 1.60, 'roll': 0.0, 'pitch': 0.0,
                     'yaw': -45.0, 'id': 'IMU'},
                    {'type': 'sensor.opendrive_map', 'reading_frequency': 1, 'id': 'OpenDRIVE'},
+                   {'type': 'sensor.speedometer', 'reading_frequency': 1, 'id': 'Speedometer'},
                    ]
 
         return sensors
@@ -73,6 +74,9 @@ class DummyAgent(AutonomousAgent):
             if hasattr(val[1], 'shape'):
                 shape = val[1].shape
                 print("[{} -- {:06d}] with shape {}".format(key, val[0], shape))
+            elif key == 'Speedometer':
+                speed = val[1]['speed']
+                print("[{} -- {:06d}] with speed = {} m/s".format(key, val[0], speed))
             else:
                 print("[{} -- {:06d}] ".format(key, val[0]))
         print("<=====================")
